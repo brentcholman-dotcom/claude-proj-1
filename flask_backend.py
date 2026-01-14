@@ -155,11 +155,11 @@ class MultiLLMManager:
         return response.choices[0].message.content
 
 class EnhancedLLMRouter(LLMRouter):
-    """Router that sends all requests to Claude"""
+    """Router that sends requests to selected LLM with privacy protection"""
 
     def __init__(self):
         super().__init__()
-        self.cloud_manager = CloudServiceManager()
+        self.llm_manager = MultiLLMManager()
         self.user_preferences = self.load_user_preferences()
 
     def load_user_preferences(self) -> Dict:
@@ -179,9 +179,9 @@ class EnhancedLLMRouter(LLMRouter):
         with open('user_preferences.json', 'w') as f:
             json.dump(self.user_preferences, f, indent=2)
     
-    def query_cloud_model(self, prompt: str, service: Optional[str] = None) -> str:
-        """Query Claude (all requests go to Claude)"""
-        return self.cloud_manager.query_claude(prompt)
+    def query_llm(self, provider: str, api_key: str, prompt: str) -> str:
+        """Query the selected LLM provider"""
+        return self.llm_manager.query_llm(provider, api_key, prompt)
     
     def apply_learned_rules(self, query: str) -> Optional[RoutingDecision]:
         """Apply previously learned routing rules"""
@@ -267,9 +267,8 @@ class EnhancedLLMRouter(LLMRouter):
         
         logger.info(f"Learned from correction: {query[:50]}... -> {corrected_destination}")
     
-    def enhanced_process_query(self, query: str, force_destination: Optional[str] = None,
-                             cloud_service: Optional[str] = None) -> Dict:
-        """Process query with privacy protection and send to Claude"""
+    def enhanced_process_query(self, query: str, provider: str, api_key: str) -> Dict:
+        """Process query with privacy protection and send to selected LLM"""
 
         # Analyze query for PII and sensitivity
         decision = self.analyze_query(query, self.conversation_history[-5:])
@@ -285,9 +284,9 @@ class EnhancedLLMRouter(LLMRouter):
             decision.anonymization_needed = True
             logger.info(f"Query anonymized - Sensitivity: {decision.sensitivity_score:.2f}")
 
-        # All requests go to Claude (with anonymization if needed)
-        response = self.query_cloud_model(processed_query)
-        model_used = "Claude (Anthropic)"
+        # Send to selected LLM (with anonymization if needed)
+        response = self.query_llm(provider, api_key, processed_query)
+        provider_name = self.llm_manager.PROVIDERS.get(provider, {}).get('name', provider)
 
         # Store conversation history (original query)
         self.conversation_history.append(query)
@@ -296,15 +295,15 @@ class EnhancedLLMRouter(LLMRouter):
             'query': query,
             'response': response,
             'routing_decision': {
-                'destination': 'claude',
+                'destination': provider,
                 'confidence': 1.0,
                 'sensitivity_score': decision.sensitivity_score,
                 'complexity_score': decision.complexity_score,
-                'reasoning': decision.reasoning + (['Privacy protection: Query anonymized before sending to Claude'] if anonymization_applied else []),
+                'reasoning': decision.reasoning + ([f'Privacy protection: Query anonymized before sending to {provider_name}'] if anonymization_applied else []),
                 'detected_patterns': decision.detected_patterns,
                 'anonymization_needed': anonymization_applied
             },
-            'model_used': model_used,
+            'model_used': provider_name,
             'processed_query': processed_query if anonymization_applied else None,
             'timestamp': datetime.now().isoformat()
         }
@@ -327,26 +326,93 @@ def index():
         <p>Files in directory: """ + str(os.listdir('.')) + """</p>
         """
 
+@app.route('/api/providers', methods=['GET'])
+def get_providers():
+    """Get list of available LLM providers"""
+    return jsonify({
+        'providers': router.llm_manager.PROVIDERS,
+        'current': session.get('provider', 'claude')
+    })
+
+@app.route('/api/set-provider', methods=['POST'])
+def set_provider():
+    """Set the active LLM provider"""
+    try:
+        data = request.get_json()
+        provider = data.get('provider')
+        api_key = data.get('api_key')
+
+        if not provider or provider not in router.llm_manager.PROVIDERS:
+            return jsonify({'error': 'Invalid provider'}), 400
+
+        if not api_key:
+            return jsonify({'error': 'API key is required'}), 400
+
+        # Validate API key
+        valid, message = router.llm_manager.validate_api_key(provider, api_key)
+
+        if not valid:
+            return jsonify({'error': message}), 401
+
+        # Store in session (server-side, secure)
+        session['provider'] = provider
+        session['api_key'] = api_key
+        session.modified = True
+
+        logger.info(f"Provider set to {provider}")
+
+        return jsonify({
+            'status': 'success',
+            'message': message,
+            'provider': provider,
+            'provider_name': router.llm_manager.PROVIDERS[provider]['name']
+        })
+
+    except Exception as e:
+        logger.error(f"Error setting provider: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/current-provider', methods=['GET'])
+def get_current_provider():
+    """Get current provider status"""
+    provider = session.get('provider')
+    has_api_key = 'api_key' in session
+
+    if provider and has_api_key:
+        return jsonify({
+            'configured': True,
+            'provider': provider,
+            'provider_name': router.llm_manager.PROVIDERS[provider]['name']
+        })
+    else:
+        return jsonify({
+            'configured': False,
+            'provider': None
+        })
+
 @app.route('/api/query', methods=['POST'])
 def process_query():
     """Main endpoint for processing queries"""
     try:
+        # Check if provider is configured
+        provider = session.get('provider')
+        api_key = session.get('api_key')
+
+        if not provider or not api_key:
+            return jsonify({
+                'error': 'Please select an LLM provider and configure your API key first'
+            }), 403
+
         data = request.get_json()
         query = data.get('query', '')
-        force_destination = data.get('force_destination')
-        cloud_service = data.get('cloud_service')
-        
+
         if not query.strip():
             return jsonify({'error': 'Query cannot be empty'}), 400
-        
-        result = router.enhanced_process_query(
-            query, 
-            force_destination=force_destination,
-            cloud_service=cloud_service
-        )
-        
+
+        result = router.enhanced_process_query(query, provider, api_key)
+
         return jsonify(result)
-        
+
     except Exception as e:
         logger.error(f"Error processing query: {e}")
         return jsonify({'error': str(e)}), 500
@@ -435,24 +501,30 @@ def update_preferences():
 def health_check():
     """Health check endpoint"""
     try:
-        # Check Claude/Anthropic connection
-        claude_status = "configured" if router.cloud_manager.anthropic_client else "not_configured"
+        provider = session.get('provider')
+        has_api_key = 'api_key' in session
 
         return jsonify({
             'status': 'healthy',
-            'claude_status': claude_status,
-            'total_queries_processed': len(router.conversation_history)
+            'configured': has_api_key,
+            'provider': provider if has_api_key else None,
+            'total_queries_processed': len(router.conversation_history),
+            'available_providers': list(router.llm_manager.PROVIDERS.keys())
         })
 
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🤖 Claude LLM Router Backend Starting...")
-    print("📋 Setup Instructions:")
-    print("1. Set your Anthropic API key in .env file:")
-    print("   ANTHROPIC_API_KEY='your-key-here'")
-    print("2. All requests will be sent to Claude")
+    print("🤖 Multi-LLM Privacy Router Backend Starting...")
+    print("=" * 60)
+    print("📋 Supported LLM Providers:")
+    for key, info in router.llm_manager.PROVIDERS.items():
+        print(f"   • {info['name']}")
+    print("\n🔒 Privacy Protection: All queries are analyzed and anonymized")
+    print("   when sensitive information is detected")
     print("\n🚀 Starting server on http://localhost:5000")
+    print("   Select your LLM provider in the web interface")
+    print("=" * 60)
 
     app.run(debug=True, host='0.0.0.0', port=5000)
