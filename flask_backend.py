@@ -172,13 +172,27 @@ class EnhancedLLMRouter(LLMRouter):
     
     def enhanced_process_query(self, query: str, force_destination: Optional[str] = None,
                              cloud_service: Optional[str] = None) -> Dict:
-        """Process query and send to Claude"""
+        """Process query with privacy protection and send to Claude"""
 
-        # All requests go to Claude
-        response = self.query_cloud_model(query)
+        # Analyze query for PII and sensitivity
+        decision = self.analyze_query(query, self.conversation_history[-5:])
+
+        # Determine if anonymization is needed based on sensitivity
+        processed_query = query
+        anonymization_applied = False
+
+        # Apply anonymization for high-sensitivity queries or if PII detected
+        if decision.sensitivity_score > 0.3:  # Medium to high sensitivity
+            processed_query = self.anonymize_query(query)
+            anonymization_applied = True
+            decision.anonymization_needed = True
+            logger.info(f"Query anonymized - Sensitivity: {decision.sensitivity_score:.2f}")
+
+        # All requests go to Claude (with anonymization if needed)
+        response = self.query_cloud_model(processed_query)
         model_used = "Claude (Anthropic)"
 
-        # Store conversation history
+        # Store conversation history (original query)
         self.conversation_history.append(query)
 
         return {
@@ -187,14 +201,14 @@ class EnhancedLLMRouter(LLMRouter):
             'routing_decision': {
                 'destination': 'claude',
                 'confidence': 1.0,
-                'sensitivity_score': 0,
-                'complexity_score': 0,
-                'reasoning': ['All requests sent to Claude'],
-                'detected_patterns': [],
-                'anonymization_needed': False
+                'sensitivity_score': decision.sensitivity_score,
+                'complexity_score': decision.complexity_score,
+                'reasoning': decision.reasoning + (['Privacy protection: Query anonymized before sending to Claude'] if anonymization_applied else []),
+                'detected_patterns': decision.detected_patterns,
+                'anonymization_needed': anonymization_applied
             },
             'model_used': model_used,
-            'processed_query': None,
+            'processed_query': processed_query if anonymization_applied else None,
             'timestamp': datetime.now().isoformat()
         }
 

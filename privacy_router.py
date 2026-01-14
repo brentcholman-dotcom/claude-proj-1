@@ -184,11 +184,17 @@ class PrivacyClassifier:
         return min(score, 1.0), detected_patterns
 
 class LLMRouter:
-    """Main router for Claude - maintains conversation history"""
+    """Main router for Claude - maintains conversation history and privacy analysis"""
 
     def __init__(self):
         self.classifier = PrivacyClassifier()
         self.conversation_history = []
+        self.routing_history = []
+
+        # Sensitivity thresholds for analysis
+        self.sensitivity_threshold_high = 0.8
+        self.sensitivity_threshold_medium = 0.3
+        self.complexity_threshold_cloud = 0.7
         
     def analyze_query(self, query: str, context: Optional[List[str]] = None) -> RoutingDecision:
         """Analyze a query and determine routing decision"""
