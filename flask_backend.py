@@ -72,7 +72,17 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 
 Session(app)
-CORS(app, supports_credentials=True)
+
+# SECURITY: Configure CORS with explicit allowed origins
+allowed_origins = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5000').split(',')
+allowed_origins = [origin.strip() for origin in allowed_origins]
+
+CORS(app,
+     resources={r"/api/*": {"origins": allowed_origins}},
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "OPTIONS"]
+)
 
 # Initialize rate limiter
 limiter = Limiter(
@@ -149,7 +159,16 @@ class MultiLLMManager:
 
         except Exception as e:
             logger.error(f"API key validation failed for {provider}: {e}")
-            return False, f"Validation failed: {str(e)}"
+            # SECURITY: Don't leak detailed error messages to client
+            error_type = type(e).__name__
+            if 'authentication' in str(e).lower() or 'api' in str(e).lower():
+                return False, "Invalid API key - authentication failed"
+            elif 'rate' in str(e).lower() or 'quota' in str(e).lower():
+                return False, "Rate limit or quota exceeded"
+            elif 'network' in str(e).lower() or 'connection' in str(e).lower():
+                return False, "Network error - unable to validate key"
+            else:
+                return False, f"Validation failed - please check your API key"
 
     def query_llm(self, provider: str, api_key: str, prompt: str) -> str:
         """Query the selected LLM provider"""
@@ -525,8 +544,8 @@ def set_provider():
         valid, message = router.llm_manager.validate_api_key(provider, api_key)
 
         if not valid:
-            logger.warning(f"Failed API key validation for {provider} from IP: {client_ip}")
-            return jsonify({'error': f"Validation failed: {message}"}), 401
+            logger.warning(f"Failed API key validation for {provider} from IP: {client_ip}: {message}")
+            return jsonify({'error': message}), 401
 
         # SECURITY: Encrypt API key before storing in session
         encrypted_key = secure_manager.encrypt_api_key(api_key)

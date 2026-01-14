@@ -20,7 +20,9 @@ ENV/
 *.swo
 
 # Environment variables
+.env
 .env.local
+.env.*.local
 
 # User preferences
 user_preferences.json
