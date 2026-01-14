@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Flask Backend for Claude LLM Router
-Sends all requests to Claude (Anthropic) for processing
+Flask Backend for Multi-LLM Privacy Router
+Supports Claude, ChatGPT, Gemini, and Grok with privacy protection
 """
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
+from flask_session import Session
 import os
 import json
 import logging
@@ -13,6 +14,8 @@ from datetime import datetime
 from typing import Dict, Optional
 import requests
 from anthropic import Anthropic
+import openai
+import google.generativeai as genai
 
 # Import our privacy router
 from privacy_router import LLMRouter, RoutingDecision
@@ -22,40 +25,134 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+Session(app)
+CORS(app, supports_credentials=True)
 
-class CloudServiceManager:
-    """Manages connection to Claude (Anthropic)"""
+class MultiLLMManager:
+    """Manages connections to multiple LLM providers with privacy protection"""
+
+    # Supported providers
+    PROVIDERS = {
+        'claude': {'name': 'Claude (Anthropic)', 'default_model': 'claude-sonnet-4-20250514'},
+        'chatgpt': {'name': 'ChatGPT (OpenAI)', 'default_model': 'gpt-4'},
+        'gemini': {'name': 'Gemini (Google)', 'default_model': 'gemini-pro'},
+        'grok': {'name': 'Grok (xAI)', 'default_model': 'grok-beta'}
+    }
 
     def __init__(self):
-        # Initialize Anthropic client
-        self.anthropic_client = None
-        self.setup_anthropic()
+        """Initialize manager - clients created per-session"""
+        pass
 
-    def setup_anthropic(self):
-        """Initialize Anthropic client if API key is available"""
-        api_key = os.getenv('ANTHROPIC_API_KEY')
-        if api_key:
-            self.anthropic_client = Anthropic(api_key=api_key)
-            logger.info("Claude (Anthropic) client initialized")
-        else:
-            logger.error("Anthropic API key not found. Please set ANTHROPIC_API_KEY environment variable.")
-
-    def query_claude(self, prompt: str, model: str = "claude-sonnet-4-20250514") -> str:
-        """Query Claude API"""
-        if not self.anthropic_client:
-            return "Error: Claude not configured. Please set ANTHROPIC_API_KEY in your .env file."
-
+    def validate_api_key(self, provider: str, api_key: str) -> tuple[bool, str]:
+        """Validate an API key by making a test request"""
         try:
-            response = self.anthropic_client.messages.create(
-                model=model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.content[0].text
+            if provider == 'claude':
+                client = Anthropic(api_key=api_key)
+                # Test with minimal request
+                client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": "test"}]
+                )
+                return True, "Claude API key validated successfully"
+
+            elif provider == 'chatgpt':
+                client = openai.OpenAI(api_key=api_key)
+                # Test with minimal request
+                client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": "test"}]
+                )
+                return True, "OpenAI API key validated successfully"
+
+            elif provider == 'gemini':
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel('gemini-pro')
+                # Test with minimal request
+                model.generate_content("test", generation_config={'max_output_tokens': 10})
+                return True, "Gemini API key validated successfully"
+
+            elif provider == 'grok':
+                # Grok uses OpenAI-compatible API
+                client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url="https://api.x.ai/v1"
+                )
+                # Test with minimal request
+                client.chat.completions.create(
+                    model="grok-beta",
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": "test"}]
+                )
+                return True, "Grok API key validated successfully"
+            else:
+                return False, f"Unknown provider: {provider}"
+
         except Exception as e:
-            logger.error(f"Claude API error: {e}")
-            return f"Error querying Claude: {e}"
+            logger.error(f"API key validation failed for {provider}: {e}")
+            return False, f"Validation failed: {str(e)}"
+
+    def query_llm(self, provider: str, api_key: str, prompt: str) -> str:
+        """Query the selected LLM provider"""
+        try:
+            if provider == 'claude':
+                return self._query_claude(api_key, prompt)
+            elif provider == 'chatgpt':
+                return self._query_chatgpt(api_key, prompt)
+            elif provider == 'gemini':
+                return self._query_gemini(api_key, prompt)
+            elif provider == 'grok':
+                return self._query_grok(api_key, prompt)
+            else:
+                return f"Error: Unsupported provider '{provider}'"
+        except Exception as e:
+            logger.error(f"Error querying {provider}: {e}")
+            return f"Error querying {provider}: {str(e)}"
+
+    def _query_claude(self, api_key: str, prompt: str) -> str:
+        """Query Claude (Anthropic)"""
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.content[0].text
+
+    def _query_chatgpt(self, api_key: str, prompt: str) -> str:
+        """Query ChatGPT (OpenAI)"""
+        client = openai.OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+
+    def _query_gemini(self, api_key: str, prompt: str) -> str:
+        """Query Gemini (Google)"""
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(prompt)
+        return response.text
+
+    def _query_grok(self, api_key: str, prompt: str) -> str:
+        """Query Grok (xAI)"""
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://api.x.ai/v1"
+        )
+        response = client.chat.completions.create(
+            model="grok-beta",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
 
 class EnhancedLLMRouter(LLMRouter):
     """Router that sends all requests to Claude"""
