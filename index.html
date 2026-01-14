@@ -562,13 +562,13 @@
 
             <form id="providerForm">
                 <div class="form-group">
-                    <label class="form-label" for="provider-select">Choose Provider</label>
+                    <label class="form-label" for="provider-select">Choose Provider *</label>
                     <select class="form-select" id="provider-select" required>
-                        <option value="">-- Select a provider --</option>
-                        <option value="claude">Claude (Anthropic)</option>
-                        <option value="chatgpt">ChatGPT (OpenAI)</option>
-                        <option value="gemini">Gemini (Google)</option>
-                        <option value="grok">Grok (xAI)</option>
+                        <option value="" disabled selected>👉 Select your LLM provider...</option>
+                        <option value="claude">🤖 Claude (Anthropic)</option>
+                        <option value="chatgpt">💬 ChatGPT (OpenAI)</option>
+                        <option value="gemini">✨ Gemini (Google)</option>
+                        <option value="grok">🚀 Grok (xAI)</option>
                     </select>
                 </div>
 
@@ -594,7 +594,7 @@
         </div>
     </div>
     <div class="sidebar">
-        <h2>🤖 Claude Chat</h2>
+        <h2>🔌 Multi-LLM Chat</h2>
 
         <div class="stats-grid">
             <div class="stat-card">
@@ -603,15 +603,18 @@
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">Claude</div>
-                <div class="stat-label">Powered by Anthropic</div>
+                <div class="stat-number" style="font-size: 16px;">⚠️ Not Set</div>
+                <div class="stat-label">Provider Status</div>
             </div>
         </div>
 
         <div style="margin-top: 30px; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2);">
-            <h3 style="margin-bottom: 10px; font-size: 14px;">About</h3>
+            <h3 style="margin-bottom: 10px; font-size: 14px;">Getting Started</h3>
             <p style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
-                All queries are processed by Claude, Anthropic's advanced AI assistant. Claude is designed to be helpful, harmless, and honest.
+                👉 Select your preferred LLM provider from the modal to get started. Choose from Claude, ChatGPT, Gemini, or Grok.
+            </p>
+            <p style="font-size: 12px; opacity: 0.8; line-height: 1.6; margin-top: 10px;">
+                🔒 All providers include automatic privacy protection and PII filtering.
             </p>
         </div>
     </div>
@@ -622,19 +625,27 @@
                 <div class="message-content">
                     <div class="routing-header local">
                         <div class="routing-main">
-                            <span class="routing-icon">🤖</span>
-                            <span class="routing-text">CLAUDE • Welcome Message</span>
+                            <span class="routing-icon">🔌</span>
+                            <span class="routing-text">MULTI-LLM PRIVACY CHAT • Welcome</span>
                         </div>
-                        <span class="routing-confidence">Anthropic</span>
+                        <span class="routing-confidence">Choose Your Provider</span>
                     </div>
 
                     <div>
-                        Welcome to Claude AI Chat! All your queries are powered by Claude from Anthropic.
+                        <strong>👋 Welcome to Multi-LLM Privacy Chat!</strong>
 
-                        <br><br><strong>Powered by:</strong>
-                        <br>🤖 Claude (Anthropic) - Advanced AI assistant
+                        <br><br>To get started, please select your preferred LLM provider:
+                        <br>🤖 <strong>Claude (Anthropic)</strong> - Detailed analysis & reasoning
+                        <br>💬 <strong>ChatGPT (OpenAI)</strong> - General conversation & coding
+                        <br>✨ <strong>Gemini (Google)</strong> - Multimodal capabilities
+                        <br>🚀 <strong>Grok (xAI)</strong> - Real-time information
 
-                        <br><br>Ask me anything - from coding help to creative writing, analysis, and more!
+                        <br><br><strong>🔒 Privacy Protection Included:</strong>
+                        <br>✓ Automatic PII detection and anonymization
+                        <br>✓ Sensitivity analysis for every query
+                        <br>✓ Your privacy is our priority
+
+                        <br><br><em>Select a provider from the modal to begin!</em>
                     </div>
                 </div>
             </div>

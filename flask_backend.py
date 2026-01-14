@@ -331,7 +331,7 @@ def get_providers():
     """Get list of available LLM providers"""
     return jsonify({
         'providers': router.llm_manager.PROVIDERS,
-        'current': session.get('provider', 'claude')
+        'current': session.get('provider', None)
     })
 
 @app.route('/api/set-provider', methods=['POST'])
@@ -362,6 +362,7 @@ def set_provider():
         logger.info(f"Provider set to {provider}")
 
         return jsonify({
+            'success': True,
             'status': 'success',
             'message': message,
             'provider': provider,
