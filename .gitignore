@@ -28,6 +28,10 @@ user_preferences.json
 # Flask session data
 flask_session/
 
+# Logs
+logs/
+*.log
+
 # OS
 .DS_Store
 Thumbs.db

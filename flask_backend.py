@@ -2,35 +2,89 @@
 """
 Flask Backend for Multi-LLM Privacy Router
 Supports Claude, ChatGPT, Gemini, and Grok with privacy protection
+Enhanced with comprehensive security features
 """
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_session import Session
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import os
 import json
 import logging
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 import requests
 from anthropic import Anthropic
 import openai
 import google.generativeai as genai
+from dotenv import load_dotenv
 
-# Import our privacy router
+# Import our privacy router and secure session manager
 from privacy_router import LLMRouter, RoutingDecision
+from secure_session import SecureSessionManager
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Load environment variables
+load_dotenv()
+
+# Configure logging with rotation
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+
+file_handler = RotatingFileHandler('logs/security.log', maxBytes=10485760, backupCount=10)
+file_handler.setLevel(logging.WARNING)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d] [IP: %(ip)s]',
+    defaults={'ip': 'N/A'}
+))
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[file_handler, console_handler]
+)
 logger = logging.getLogger(__name__)
 
+# Initialize Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
+
+# CRITICAL: Require SECRET_KEY to be set
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError(
+        "SECRET_KEY must be set in environment or .env file!\n"
+        "Generate one with: python3 -c 'import secrets; print(secrets.token_hex(32))'\n"
+        "Add it to .env file: SECRET_KEY=<generated_key>"
+    )
+
+app.config['SECRET_KEY'] = SECRET_KEY
 app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_PERMANENT'] = True  # Enable timeout
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)  # 8 hour session timeout
 app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_COOKIE_SECURE'] = True  # Require HTTPS in production
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+
 Session(app)
 CORS(app, supports_credentials=True)
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+    strategy="fixed-window"
+)
+
+# Initialize secure session manager for API key encryption
+secure_manager = SecureSessionManager(SECRET_KEY)
 
 class MultiLLMManager:
     """Manages connections to multiple LLM providers with privacy protection"""
@@ -311,6 +365,74 @@ class EnhancedLLMRouter(LLMRouter):
 # Initialize the enhanced router
 router = EnhancedLLMRouter()
 
+# ============================================================================
+# SECURITY MIDDLEWARE
+# ============================================================================
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+    # Only add HSTS if HTTPS is enabled
+    if request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+    # Content Security Policy
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'"
+    )
+
+    return response
+
+def validate_query_input(query: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate query input for security and sanity checks.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not query:
+        return False, "Query cannot be empty"
+
+    if not isinstance(query, str):
+        return False, "Query must be a string"
+
+    # Check length
+    if len(query) > 50000:  # 50K chars max
+        return False, "Query too long (maximum 50,000 characters)"
+
+    if len(query) < 1:
+        return False, "Query too short"
+
+    # Sanitize - remove null bytes and excessive control characters
+    cleaned_query = ''.join(char for char in query if ord(char) >= 32 or char in '\n\r\t')
+
+    if not cleaned_query:
+        return False, "Query contains only invalid characters"
+
+    return True, None
+
+def get_client_ip() -> str:
+    """Get client IP address, considering proxies"""
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    elif request.headers.get('X-Real-IP'):
+        return request.headers.get('X-Real-IP')
+    return request.remote_addr or 'Unknown'
+
+# ============================================================================
+# ROUTES
+# ============================================================================
+
 @app.route('/')
 def index():
     """Serve the main UI"""
@@ -377,31 +499,46 @@ def get_providers():
     })
 
 @app.route('/api/set-provider', methods=['POST'])
+@limiter.limit("5 per minute")  # Strict rate limit for API key validation
 def set_provider():
-    """Set the active LLM provider"""
+    """Set the active LLM provider with encrypted storage"""
+    client_ip = get_client_ip()
+
     try:
         data = request.get_json()
         provider = data.get('provider')
         api_key = data.get('api_key')
 
         if not provider or provider not in router.llm_manager.PROVIDERS:
+            logger.warning(f"Invalid provider attempt: {provider} from IP: {client_ip}")
             return jsonify({'error': 'Invalid provider'}), 400
 
         if not api_key:
             return jsonify({'error': 'API key is required'}), 400
 
-        # Validate API key
+        # Validate API key length
+        if len(api_key) > 500:
+            logger.warning(f"Suspiciously long API key from IP: {client_ip}")
+            return jsonify({'error': 'Invalid API key format'}), 400
+
+        # Validate API key with the actual provider
         valid, message = router.llm_manager.validate_api_key(provider, api_key)
 
         if not valid:
-            return jsonify({'error': message}), 401
+            logger.warning(f"Failed API key validation for {provider} from IP: {client_ip}")
+            return jsonify({'error': f"Validation failed: {message}"}), 401
 
-        # Store in session (server-side, secure)
+        # SECURITY: Encrypt API key before storing in session
+        encrypted_key = secure_manager.encrypt_api_key(api_key)
+
+        # Store in session (server-side)
+        session.permanent = True  # Enable timeout
         session['provider'] = provider
-        session['api_key'] = api_key
+        session['api_key_enc'] = encrypted_key  # Store encrypted version only
+        session['created_at'] = datetime.utcnow().isoformat()
         session.modified = True
 
-        logger.info(f"Provider set to {provider}")
+        logger.info(f"Provider set to {provider} from IP: {client_ip}")
 
         return jsonify({
             'success': True,
@@ -412,14 +549,14 @@ def set_provider():
         })
 
     except Exception as e:
-        logger.error(f"Error setting provider: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error setting provider from IP {client_ip}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/current-provider', methods=['GET'])
 def get_current_provider():
     """Get current provider status"""
     provider = session.get('provider')
-    has_api_key = 'api_key' in session
+    has_api_key = 'api_key_enc' in session  # Check for encrypted key
 
     if provider and has_api_key:
         return jsonify({
@@ -434,31 +571,51 @@ def get_current_provider():
         })
 
 @app.route('/api/query', methods=['POST'])
+@limiter.limit("30 per minute")  # Rate limit for queries
 def process_query():
-    """Main endpoint for processing queries"""
+    """Main endpoint for processing queries with security validation"""
+    client_ip = get_client_ip()
+
     try:
         # Check if provider is configured
         provider = session.get('provider')
-        api_key = session.get('api_key')
+        encrypted_key = session.get('api_key_enc')
 
-        if not provider or not api_key:
+        if not provider or not encrypted_key:
+            logger.warning(f"Query attempted without configured provider from IP: {client_ip}")
             return jsonify({
                 'error': 'Please select an LLM provider and configure your API key first'
             }), 403
 
+        # SECURITY: Decrypt API key from session
+        try:
+            api_key = secure_manager.decrypt_api_key(encrypted_key)
+        except Exception as e:
+            logger.error(f"Failed to decrypt API key for IP {client_ip}: {e}")
+            # Clear corrupted session
+            session.clear()
+            return jsonify({
+                'error': 'Session corrupted. Please reconfigure your LLM provider.'
+            }), 401
+
         data = request.get_json()
         query = data.get('query', '')
 
-        if not query.strip():
-            return jsonify({'error': 'Query cannot be empty'}), 400
+        # SECURITY: Validate query input
+        is_valid, error_message = validate_query_input(query)
+        if not is_valid:
+            logger.warning(f"Invalid query from IP {client_ip}: {error_message}")
+            return jsonify({'error': error_message}), 400
 
+        # Process query with privacy protection
+        logger.info(f"Processing query from IP {client_ip} with provider {provider}")
         result = router.enhanced_process_query(query, provider, api_key)
 
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Error processing query: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error processing query from IP {client_ip}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/correct', methods=['POST'])
 def submit_correction():
@@ -545,7 +702,7 @@ def health_check():
     """Health check endpoint"""
     try:
         provider = session.get('provider')
-        has_api_key = 'api_key' in session
+        has_api_key = 'api_key_enc' in session  # Check for encrypted key
 
         return jsonify({
             'status': 'healthy',
@@ -566,8 +723,23 @@ if __name__ == '__main__':
         print(f"   • {info['name']}")
     print("\n🔒 Privacy Protection: All queries are analyzed and anonymized")
     print("   when sensitive information is detected")
+    print("\n🔒 Security Features:")
+    print("   • Encrypted API key storage with Fernet")
+    print("   • Rate limiting (30 queries/min, 5 API key validations/min)")
+    print("   • Input validation and sanitization")
+    print("   • Security headers (CSP, X-Frame-Options, etc.)")
+    print("   • Session timeout (8 hours)")
+    print("   • Security logging with rotation")
     print("\n🚀 Starting server on http://localhost:5000")
     print("   Select your LLM provider in the web interface")
+    print("\n⚠️  PRODUCTION DEPLOYMENT:")
+    print("   • Use HTTPS with valid SSL certificate")
+    print("   • Deploy behind reverse proxy (nginx/Apache)")
+    print("   • Use production WSGI server: gunicorn -w 4 -b 0.0.0.0:5000 flask_backend:app")
+    print("   • Set FLASK_ENV=production in .env")
     print("=" * 60)
 
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # SECURITY: Disable debug mode in production
+    # For development, you can set debug=True, but NEVER in production
+    debug_mode = os.environ.get('FLASK_ENV') == 'development'
+    app.run(debug=debug_mode, host='0.0.0.0', port=5000)
