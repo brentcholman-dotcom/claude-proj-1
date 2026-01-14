@@ -326,6 +326,48 @@ def index():
         <p>Files in directory: """ + str(os.listdir('.')) + """</p>
         """
 
+@app.route('/manifest.json')
+def serve_manifest():
+    """Serve the PWA manifest file"""
+    try:
+        with open('manifest.json', 'r', encoding='utf-8') as f:
+            response = app.response_class(
+                response=f.read(),
+                status=200,
+                mimetype='application/json'
+            )
+            return response
+    except FileNotFoundError:
+        return jsonify({'error': 'Manifest not found'}), 404
+
+@app.route('/service-worker.js')
+def serve_service_worker():
+    """Serve the service worker file"""
+    try:
+        with open('service-worker.js', 'r', encoding='utf-8') as f:
+            response = app.response_class(
+                response=f.read(),
+                status=200,
+                mimetype='application/javascript'
+            )
+            # Prevent caching of service worker for development
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            response.headers['Service-Worker-Allowed'] = '/'
+            return response
+    except FileNotFoundError:
+        return 'Service worker not found', 404
+
+@app.route('/offline.html')
+def serve_offline():
+    """Serve the offline fallback page"""
+    try:
+        with open('offline.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return '<h1>Offline page not found</h1>', 404
+
 @app.route('/api/providers', methods=['GET'])
 def get_providers():
     """Get list of available LLM providers"""
