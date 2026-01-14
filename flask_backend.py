@@ -17,6 +17,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 import requests
+import redis
 from anthropic import Anthropic
 import openai
 import google.generativeai as genai
@@ -63,10 +64,51 @@ if not SECRET_KEY:
     )
 
 app.config['SECRET_KEY'] = SECRET_KEY
-app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_TYPE'] = 'redis'
+
+# Configure Redis connection for session storage
+redis_url = os.environ.get('REDIS_URL')
+if redis_url:
+    # Use full Redis URL (supports password, SSL, etc.)
+    try:
+        app.config['SESSION_REDIS'] = redis.from_url(
+            redis_url,
+            decode_responses=False,  # Keep binary for security
+            socket_connect_timeout=5,
+            socket_timeout=5
+        )
+        logger.info(f"Redis session storage configured from URL")
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis: {e}")
+        logger.warning("Falling back to filesystem sessions")
+        app.config['SESSION_TYPE'] = 'filesystem'
+else:
+    # Fallback to individual Redis settings
+    redis_host = os.environ.get('REDIS_HOST', 'localhost')
+    redis_port = int(os.environ.get('REDIS_PORT', 6379))
+    redis_password = os.environ.get('REDIS_PASSWORD', None)
+    redis_db = int(os.environ.get('REDIS_DB', 0))
+
+    try:
+        app.config['SESSION_REDIS'] = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            password=redis_password,
+            db=redis_db,
+            decode_responses=False,
+            socket_connect_timeout=5,
+            socket_timeout=5
+        )
+        logger.info(f"Redis session storage configured: {redis_host}:{redis_port}")
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis: {e}")
+        logger.warning("Falling back to filesystem sessions")
+        app.config['SESSION_TYPE'] = 'filesystem'
+
 app.config['SESSION_PERMANENT'] = True  # Enable timeout
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)  # 8 hour session timeout
 app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_KEY_PREFIX'] = 'llm_session:'  # Namespace sessions
 app.config['SESSION_COOKIE_SECURE'] = True  # Require HTTPS in production
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
@@ -723,13 +765,31 @@ def health_check():
         provider = session.get('provider')
         has_api_key = 'api_key_enc' in session  # Check for encrypted key
 
-        return jsonify({
-            'status': 'healthy',
+        # Check Redis connection if using Redis sessions
+        session_type = app.config.get('SESSION_TYPE')
+        redis_healthy = None
+
+        if session_type == 'redis':
+            try:
+                app.config['SESSION_REDIS'].ping()
+                redis_healthy = True
+            except Exception as e:
+                logger.error(f"Redis health check failed: {e}")
+                redis_healthy = False
+
+        health_status = {
+            'status': 'healthy' if redis_healthy != False else 'degraded',
             'configured': has_api_key,
             'provider': provider if has_api_key else None,
             'total_queries_processed': len(router.conversation_history),
-            'available_providers': list(router.llm_manager.PROVIDERS.keys())
-        })
+            'available_providers': list(router.llm_manager.PROVIDERS.keys()),
+            'session_storage': session_type
+        }
+
+        if redis_healthy is not None:
+            health_status['redis_healthy'] = redis_healthy
+
+        return jsonify(health_status)
 
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
@@ -749,6 +809,7 @@ if __name__ == '__main__':
     print("   • Security headers (CSP, X-Frame-Options, etc.)")
     print("   • Session timeout (8 hours)")
     print("   • Security logging with rotation")
+    print(f"   • Session storage: {app.config.get('SESSION_TYPE')}")
     print("\n🚀 Starting server on http://localhost:5000")
     print("   Select your LLM provider in the web interface")
     print("\n⚠️  PRODUCTION DEPLOYMENT:")
