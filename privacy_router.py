@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Privacy-First LLM Router
-Automatically routes queries between local and cloud models based on sensitivity analysis
+Claude LLM Router
+Processes all queries through Claude (Anthropic)
 """
 
 import re
@@ -184,18 +184,11 @@ class PrivacyClassifier:
         return min(score, 1.0), detected_patterns
 
 class LLMRouter:
-    """Main router that orchestrates the privacy classification and routing decisions"""
-    
-    def __init__(self, ollama_url: str = "http://localhost:11434"):
+    """Main router for Claude - maintains conversation history"""
+
+    def __init__(self):
         self.classifier = PrivacyClassifier()
-        self.ollama_url = ollama_url
         self.conversation_history = []
-        self.routing_history = []
-        
-        # Routing thresholds (these will be learned over time)
-        self.sensitivity_threshold_high = 0.8  # Always route to local
-        self.sensitivity_threshold_medium = 0.3  # Consider complexity
-        self.complexity_threshold_cloud = 0.7   # Prefer cloud for complex queries
         
     def analyze_query(self, query: str, context: Optional[List[str]] = None) -> RoutingDecision:
         """Analyze a query and determine routing decision"""
@@ -268,23 +261,6 @@ class LLMRouter:
         
         return decision
     
-    def query_local_model(self, prompt: str, model: str = "llama3.1:8b") -> str:
-        """Send query to local Ollama instance"""
-        try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False
-                },
-                timeout=120
-            )
-            response.raise_for_status()
-            return response.json()["response"]
-        except Exception as e:
-            logger.error(f"Local model query failed: {e}")
-            return f"Error querying local model: {e}"
     
     def anonymize_query(self, query: str) -> str:
         """Basic anonymization for medium-sensitivity queries going to cloud"""
@@ -303,75 +279,40 @@ class LLMRouter:
         return anonymized
     
     def process_query(self, query: str, force_destination: Optional[str] = None) -> Dict:
-        """Main entry point - analyze query and get response"""
-        
-        # Get routing decision
-        decision = self.analyze_query(query, self.conversation_history[-5:])
-        
-        # Allow manual override
-        if force_destination:
-            decision.destination = force_destination
-            decision.reasoning.append(f"Manual override to {force_destination}")
-        
-        # Prepare query for processing
-        processed_query = query
-        if decision.destination == "cloud" and decision.anonymization_needed:
-            processed_query = self.anonymize_query(query)
-        
-        # Get response based on routing decision
-        if decision.destination == "local":
-            response = self.query_local_model(processed_query)
-            model_used = "Local Ollama"
-        else:
-            # For demo purposes, simulate cloud response
-            response = f"[CLOUD RESPONSE PLACEHOLDER for: {processed_query}]"
-            model_used = "Cloud Model (Simulated)"
-        
+        """Main entry point - process query (actual sending to Claude handled by flask_backend)"""
+
         # Store conversation history
         self.conversation_history.append(query)
-        
+
         return {
             'query': query,
-            'response': response,
-            'routing_decision': decision,
-            'model_used': model_used,
-            'processed_query': processed_query if processed_query != query else None
+            'response': '[Processed by Claude]',
+            'routing_decision': {
+                'destination': 'claude',
+                'confidence': 1.0
+            },
+            'model_used': 'Claude (Anthropic)'
         }
 
 # Example usage and testing
 if __name__ == "__main__":
     router = LLMRouter()
-    
-    # Test queries with different sensitivity levels
+
+    # Test queries
     test_queries = [
-        "What's the capital of France?",  # Low sensitivity, low complexity
-        "I'm having chest pain and difficulty breathing. Should I see a doctor?",  # High sensitivity
-        "How should I analyze the ROI of different investment strategies?",  # Low sensitivity, high complexity
-        "My therapist suggested I try meditation for my anxiety. What are some techniques?",  # High sensitivity
-        "Can you help me debug this Python code?",  # Low sensitivity, medium complexity
-        "I'm thinking about refinancing my mortgage. My current rate is 6.5% and I owe $280k.",  # Medium-high sensitivity
+        "What's the capital of France?",
+        "How should I analyze the ROI of different investment strategies?",
+        "Can you help me debug this Python code?",
     ]
-    
-    print("🔒 Privacy-First LLM Router Demo\n")
-    
+
+    print("🤖 Claude LLM Router Demo\n")
+    print("All queries are sent to Claude (Anthropic)\n")
+
     for i, query in enumerate(test_queries, 1):
         print(f"Query {i}: {query}")
         result = router.process_query(query)
-        
-        decision = result['routing_decision']
-        print(f"📍 Routing: {decision.destination.upper()}")
-        print(f"🎯 Confidence: {decision.confidence:.1%}")
-        print(f"📊 Sensitivity: {decision.sensitivity_score:.2f} | Complexity: {decision.complexity_score:.2f}")
-        
-        if decision.detected_patterns:
-            print(f"🔍 Detected: {', '.join(decision.detected_patterns)}")
-        
-        if decision.anonymization_needed:
-            print(f"🔒 Anonymized query: {result.get('processed_query', 'N/A')}")
-        
-        print(f"💬 Response: {result['response'][:100]}{'...' if len(result['response']) > 100 else ''}")
+        print(f"📍 Destination: {result['routing_decision']['destination'].upper()}")
+        print(f"🤖 Model: {result['model_used']}")
         print("-" * 80)
-    
-    print(f"\n📈 Total routing decisions made: {len(router.routing_history)}")
-    local_count = sum(1 for h in router.routing_history if h['decision'].destination == 'local')
-    print(f"🔒 Local: {local_count} | ☁️ Cloud: {len(router.routing_history) - local_count}")
+
+    print(f"\n📈 Total queries processed: {len(router.conversation_history)}")

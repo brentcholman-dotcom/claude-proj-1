@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy-First LLM Router</title>
+    <title>Claude AI Chat</title>
     <style>
         * {
             margin: 0;
@@ -395,74 +395,25 @@
 </head>
 <body>
     <div class="sidebar">
-        <h2>🔒 Privacy Dashboard</h2>
-        
+        <h2>🤖 Claude Chat</h2>
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-number" id="total-queries">0</div>
                 <div class="stat-label">Total Queries</div>
             </div>
-            
+
             <div class="stat-card">
-                <div class="stat-number" id="accuracy-score">--</div>
-                <div class="stat-label">Routing Accuracy</div>
+                <div class="stat-number">Claude</div>
+                <div class="stat-label">Powered by Anthropic</div>
             </div>
         </div>
 
-        <div class="routing-breakdown">
-            <h3 style="margin-bottom: 15px; font-size: 14px; opacity: 0.9;">Today's Routing</h3>
-            
-            <div class="breakdown-item">
-                <span>🔒 Local</span>
-                <div class="breakdown-bar">
-                    <div class="breakdown-fill" id="local-bar" style="width: 0%; background: #ef4444;"></div>
-                </div>
-                <span id="local-count">0</span>
-            </div>
-            
-            <div class="breakdown-item">
-                <span>☁️ Cloud</span>
-                <div class="breakdown-bar">
-                    <div class="breakdown-fill" id="cloud-bar" style="width: 0%; background: #3b82f6;"></div>
-                </div>
-                <span id="cloud-count">0</span>
-            </div>
-            
-            <div class="breakdown-item">
-                <span>⚠️ Overrides</span>
-                <div class="breakdown-bar">
-                    <div class="breakdown-fill" id="override-bar" style="width: 0%; background: #f59e0b;"></div>
-                </div>
-                <span id="override-count">0</span>
-            </div>
-        </div>
-
-        <div style="margin-top: 30px;">
-            <h3 style="margin-bottom: 15px; font-size: 14px; opacity: 0.9;">Sensitivity Breakdown</h3>
-            
-            <div class="breakdown-item">
-                <span>Health</span>
-                <div class="breakdown-bar">
-                    <div class="breakdown-fill" id="health-bar" style="width: 0%; background: #10b981;"></div>
-                </div>
-                <span id="health-percent">0%</span>
-            </div>
-            
-            <div class="breakdown-item">
-                <span>Finance</span>
-                <div class="breakdown-bar">
-                    <div class="breakdown-fill" id="finance-bar" style="width: 0%; background: #10b981;"></div>
-                </div>
-                <span id="finance-percent">0%</span>
-            </div>
-            
-            <div class="breakdown-item">
-                <span>Personal</span>
-                <div class="breakdown-bar">
-                    <div class="breakdown-fill" id="personal-bar" style="width: 0%; background: #10b981;"></div>
-                </div>
-                <span id="personal-percent">0%</span>
-            </div>
+        <div style="margin-top: 30px; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2);">
+            <h3 style="margin-bottom: 10px; font-size: 14px;">About</h3>
+            <p style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
+                All queries are processed by Claude, Anthropic's advanced AI assistant. Claude is designed to be helpful, harmless, and honest.
+            </p>
         </div>
     </div>
 
@@ -472,21 +423,19 @@
                 <div class="message-content">
                     <div class="routing-header local">
                         <div class="routing-main">
-                            <span class="routing-icon">🔒</span>
-                            <span class="routing-text">LOCAL MODEL • Welcome Message</span>
+                            <span class="routing-icon">🤖</span>
+                            <span class="routing-text">CLAUDE • Welcome Message</span>
                         </div>
-                        <span class="routing-confidence">100% confidence</span>
+                        <span class="routing-confidence">Anthropic</span>
                     </div>
-                    
+
                     <div>
-                        Welcome to your Privacy-First LLM Router! I'll automatically route your queries between local and cloud models based on sensitivity and complexity.
-                        
-                        <br><br><strong>How it works:</strong>
-                        <br>🔒 <strong>Red header</strong> = Local processing (private data)
-                        <br>☁️ <strong>Blue header</strong> = Cloud processing (better for complex tasks)
-                        <br>⚠️ <strong>Yellow header</strong> = Cloud with anonymization
-                        
-                        <br><br>Try asking me something about health, finance, or any complex topic to see the routing in action!
+                        Welcome to Claude AI Chat! All your queries are powered by Claude from Anthropic.
+
+                        <br><br><strong>Powered by:</strong>
+                        <br>🤖 Claude (Anthropic) - Advanced AI assistant
+
+                        <br><br>Ask me anything - from coding help to creative writing, analysis, and more!
                     </div>
                 </div>
             </div>
@@ -494,10 +443,10 @@
 
         <div class="input-container">
             <div class="input-wrapper">
-                <textarea 
-                    class="input-field" 
-                    id="user-input" 
-                    placeholder="Ask me anything... I'll automatically route based on privacy and complexity"
+                <textarea
+                    class="input-field"
+                    id="user-input"
+                    placeholder="Ask Claude anything..."
                     rows="1"
                 ></textarea>
                 <button class="send-btn" id="send-btn">Send</button>
@@ -604,14 +553,14 @@
                     <div class="message-content">
                         <div class="loading">
                             <div class="spinner"></div>
-                            <span>Analyzing query and generating response...</span>
+                            <span>Claude is thinking...</span>
                         </div>
                     </div>
                 `;
-                
+
                 chatContainer.appendChild(messageDiv);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
-                
+
                 return loadingId;
             }
 
@@ -623,89 +572,29 @@
             }
 
             addAssistantMessage(result) {
-                const decision = result.routing_decision;
-                const routingClass = decision.destination === 'local' ? 'local' : 
-                                   decision.anonymization_needed ? 'cloud-anon' : 'cloud';
-                
-                const routingIcon = decision.destination === 'local' ? '🔒' : 
-                                   decision.anonymization_needed ? '⚠️' : '☁️';
-                
-                const routingText = decision.destination === 'local' ? 'LOCAL MODEL' : 
-                                   decision.anonymization_needed ? 'CLOUD MODEL • Anonymized' : 'CLOUD MODEL';
-
                 const chatContainer = document.getElementById('chat-container');
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message assistant';
-                
-                const detailsId = 'details-' + Date.now();
+
                 const messageId = 'msg-' + Date.now();
                 messageDiv.id = messageId;
-                
+
                 messageDiv.innerHTML = `
                     <div class="message-content">
-                        <div class="routing-header ${routingClass}" onclick="this.nextElementSibling.classList.toggle('expanded')">
+                        <div class="routing-header local">
                             <div class="routing-main">
-                                <span class="routing-icon">${routingIcon}</span>
-                                <span class="routing-text">${routingText}</span>
+                                <span class="routing-icon">🤖</span>
+                                <span class="routing-text">CLAUDE</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <span class="routing-confidence">${Math.round(decision.confidence * 100)}% confidence</span>
-                                <div class="routing-controls">
-                                    <button class="btn-small" onclick="event.stopPropagation(); window.llmRouter.showOverrideMenu('${messageId}', '${result.query}', '${decision.destination}')">Override</button>
-                                    <button class="btn-small" onclick="event.stopPropagation(); window.llmRouter.reprocessQuery('${messageId}', '${result.query}', '${decision.destination}')">Reprocess</button>
-                                </div>
-                            </div>
+                            <span class="routing-confidence">Anthropic</span>
                         </div>
-                        
-                        <div class="routing-details" id="${detailsId}">
-                            <div class="detail-row">
-                                <span class="detail-label">Sensitivity Score:</span>
-                                <span class="detail-value">${decision.sensitivity_score.toFixed(2)}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">Complexity Score:</span>
-                                <span class="detail-value">${decision.complexity_score.toFixed(2)}</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="detail-label">Reasoning:</span>
-                                <span class="detail-value">${decision.reasoning.join('; ')}</span>
-                            </div>
-                            ${decision.detected_patterns.length > 0 ? `
-                                <div class="patterns-list">
-                                    <div style="margin-bottom: 4px; opacity: 0.7;">Detected Patterns:</div>
-                                    ${decision.detected_patterns.map(pattern => 
-                                        `<span class="pattern-tag">${pattern}</span>`
-                                    ).join('')}
-                                </div>
-                            ` : ''}
-                        </div>
-                        
+
                         <div style="margin-top: 12px;">
                             ${result.response}
                         </div>
-                        
-                        ${decision.destination !== 'local' ? `
-                            <div class="override-controls">
-                                <button class="override-btn" onclick="window.llmRouter.reprocessQuery('${messageId}', '${result.query}', 'local')">
-                                    🔒 Reprocess Locally
-                                </button>
-                                <button class="override-btn" onclick="window.llmRouter.markMisrouted('${messageId}', '${result.query}', '${decision.destination}')">
-                                    ❌ Mark as Misrouted
-                                </button>
-                            </div>
-                        ` : `
-                            <div class="override-controls">
-                                <button class="override-btn" onclick="window.llmRouter.reprocessQuery('${messageId}', '${result.query}', 'cloud')">
-                                    ☁️ Reprocess with Cloud
-                                </button>
-                                <button class="override-btn" onclick="window.llmRouter.markMisrouted('${messageId}', '${result.query}', '${decision.destination}')">
-                                    ❌ Mark as Misrouted
-                                </button>
-                            </div>
-                        `}
                     </div>
                 `;
-                
+
                 chatContainer.appendChild(messageDiv);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
@@ -861,34 +750,9 @@
 
             updateStats() {
                 const total = this.routingStats.total;
-                
+
                 // Update main stats
                 document.getElementById('total-queries').textContent = total;
-                document.getElementById('accuracy-score').textContent = total > 0 ? '89%' : '--';
-
-                // Update routing breakdown
-                document.getElementById('local-count').textContent = this.routingStats.local;
-                document.getElementById('cloud-count').textContent = this.routingStats.cloud;
-                document.getElementById('override-count').textContent = this.routingStats.overrides;
-
-                if (total > 0) {
-                    document.getElementById('local-bar').style.width = (this.routingStats.local / total * 100) + '%';
-                    document.getElementById('cloud-bar').style.width = (this.routingStats.cloud / total * 100) + '%';
-                    document.getElementById('override-bar').style.width = (this.routingStats.overrides / total * 100) + '%';
-                }
-
-                // Update sensitivity breakdown
-                const healthPercent = total > 0 ? Math.round(this.routingStats.health / total * 100) : 0;
-                const financePercent = total > 0 ? Math.round(this.routingStats.finance / total * 100) : 0;
-                const personalPercent = total > 0 ? Math.round(this.routingStats.personal / total * 100) : 0;
-
-                document.getElementById('health-percent').textContent = healthPercent + '%';
-                document.getElementById('finance-percent').textContent = financePercent + '%';
-                document.getElementById('personal-percent').textContent = personalPercent + '%';
-
-                document.getElementById('health-bar').style.width = healthPercent + '%';
-                document.getElementById('finance-bar').style.width = financePercent + '%';
-                document.getElementById('personal-bar').style.width = personalPercent + '%';
             }
 
             showNotification(message, type = 'success') {

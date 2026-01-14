@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Flask Backend for Privacy-First LLM Router
-Handles routing between local Ollama and cloud services with full privacy protection
+Flask Backend for Claude LLM Router
+Sends all requests to Claude (Anthropic) for processing
 """
 
 from flask import Flask, request, jsonify, render_template_string
@@ -12,7 +12,6 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 import requests
-import openai
 from anthropic import Anthropic
 
 # Import our privacy router
@@ -26,77 +25,46 @@ app = Flask(__name__)
 CORS(app)
 
 class CloudServiceManager:
-    """Manages connections to various cloud LLM services"""
-    
+    """Manages connection to Claude (Anthropic)"""
+
     def __init__(self):
-        # Initialize cloud service clients
-        self.openai_client = None
+        # Initialize Anthropic client
         self.anthropic_client = None
-        
-        # Load API keys from environment variables
-        self.setup_openai()
         self.setup_anthropic()
-    
-    def setup_openai(self):
-        """Initialize OpenAI client if API key is available"""
-        api_key = os.getenv('OPENAI_API_KEY')
-        if api_key:
-            openai.api_key = api_key
-            self.openai_client = openai
-            logger.info("OpenAI client initialized")
-        else:
-            logger.warning("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
-    
+
     def setup_anthropic(self):
         """Initialize Anthropic client if API key is available"""
         api_key = os.getenv('ANTHROPIC_API_KEY')
         if api_key:
             self.anthropic_client = Anthropic(api_key=api_key)
-            logger.info("Anthropic client initialized")
+            logger.info("Claude (Anthropic) client initialized")
         else:
-            logger.warning("Anthropic API key not found. Set ANTHROPIC_API_KEY environment variable.")
-    
-    def query_openai(self, prompt: str, model: str = "gpt-4") -> str:
-        """Query OpenAI API"""
-        if not self.openai_client:
-            return "Error: OpenAI not configured. Please set OPENAI_API_KEY."
-        
-        try:
-            response = self.openai_client.ChatCompletion.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                temperature=0.7
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
-            return f"Error querying OpenAI: {e}"
-    
-    def query_anthropic(self, prompt: str, model: str = "claude-sonnet-4-20250514") -> str:
-        """Query Anthropic API"""
+            logger.error("Anthropic API key not found. Please set ANTHROPIC_API_KEY environment variable.")
+
+    def query_claude(self, prompt: str, model: str = "claude-sonnet-4-20250514") -> str:
+        """Query Claude API"""
         if not self.anthropic_client:
-            return "Error: Anthropic not configured. Please set ANTHROPIC_API_KEY."
-        
+            return "Error: Claude not configured. Please set ANTHROPIC_API_KEY in your .env file."
+
         try:
             response = self.anthropic_client.messages.create(
                 model=model,
-                max_tokens=1000,
+                max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.content[0].text
         except Exception as e:
-            logger.error(f"Anthropic API error: {e}")
-            return f"Error querying Anthropic: {e}"
+            logger.error(f"Claude API error: {e}")
+            return f"Error querying Claude: {e}"
 
 class EnhancedLLMRouter(LLMRouter):
-    """Enhanced router with cloud service integration"""
-    
-    def __init__(self, ollama_url: str = "http://localhost:11434"):
-        super().__init__(ollama_url)
+    """Router that sends all requests to Claude"""
+
+    def __init__(self):
+        super().__init__()
         self.cloud_manager = CloudServiceManager()
         self.user_preferences = self.load_user_preferences()
-        
+
     def load_user_preferences(self) -> Dict:
         """Load user preferences from file"""
         try:
@@ -105,11 +73,7 @@ class EnhancedLLMRouter(LLMRouter):
         except FileNotFoundError:
             # Default preferences
             return {
-                "preferred_cloud_service": "anthropic",  # "openai" or "anthropic"
-                "sensitivity_threshold_high": 0.8,
-                "sensitivity_threshold_medium": 0.3,
-                "complexity_threshold_cloud": 0.7,
-                "auto_apply_learned_rules": True,
+                "auto_apply_learned_rules": False,
                 "learned_rules": {}
             }
     
@@ -119,15 +83,8 @@ class EnhancedLLMRouter(LLMRouter):
             json.dump(self.user_preferences, f, indent=2)
     
     def query_cloud_model(self, prompt: str, service: Optional[str] = None) -> str:
-        """Query cloud model based on user preference"""
-        service = service or self.user_preferences.get("preferred_cloud_service", "anthropic")
-        
-        if service == "openai":
-            return self.cloud_manager.query_openai(prompt)
-        elif service == "anthropic":
-            return self.cloud_manager.query_anthropic(prompt)
-        else:
-            return f"Error: Unknown cloud service '{service}'"
+        """Query Claude (all requests go to Claude)"""
+        return self.cloud_manager.query_claude(prompt)
     
     def apply_learned_rules(self, query: str) -> Optional[RoutingDecision]:
         """Apply previously learned routing rules"""
@@ -215,52 +172,29 @@ class EnhancedLLMRouter(LLMRouter):
     
     def enhanced_process_query(self, query: str, force_destination: Optional[str] = None,
                              cloud_service: Optional[str] = None) -> Dict:
-        """Enhanced query processing with learning and cloud integration"""
-        
-        # First check for learned rules
-        learned_decision = self.apply_learned_rules(query)
-        if learned_decision and not force_destination:
-            decision = learned_decision
-        else:
-            # Use standard analysis
-            decision = self.analyze_query(query, self.conversation_history[-5:])
-        
-        # Allow manual override
-        if force_destination:
-            decision.destination = force_destination
-            decision.reasoning.append(f"Manual override to {force_destination}")
-        
-        # Prepare query for processing
-        processed_query = query
-        if decision.destination == "cloud" and decision.anonymization_needed:
-            processed_query = self.anonymize_query(query)
-        
-        # Get response based on routing decision
-        if decision.destination == "local":
-            response = self.query_local_model(processed_query)
-            model_used = "Local Ollama (llama3.1:8b)"
-        else:
-            response = self.query_cloud_model(processed_query, cloud_service)
-            service_name = cloud_service or self.user_preferences.get("preferred_cloud_service", "anthropic")
-            model_used = f"Cloud Model ({service_name.title()})"
-        
+        """Process query and send to Claude"""
+
+        # All requests go to Claude
+        response = self.query_cloud_model(query)
+        model_used = "Claude (Anthropic)"
+
         # Store conversation history
         self.conversation_history.append(query)
-        
+
         return {
             'query': query,
             'response': response,
             'routing_decision': {
-                'destination': decision.destination,
-                'confidence': decision.confidence,
-                'sensitivity_score': decision.sensitivity_score,
-                'complexity_score': decision.complexity_score,
-                'reasoning': decision.reasoning,
-                'detected_patterns': decision.detected_patterns,
-                'anonymization_needed': decision.anonymization_needed
+                'destination': 'claude',
+                'confidence': 1.0,
+                'sensitivity_score': 0,
+                'complexity_score': 0,
+                'reasoning': ['All requests sent to Claude'],
+                'detected_patterns': [],
+                'anonymization_needed': False
             },
             'model_used': model_used,
-            'processed_query': processed_query if processed_query != query else None,
+            'processed_query': None,
             'timestamp': datetime.now().isoformat()
         }
 
@@ -344,38 +278,16 @@ def submit_correction():
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """Get routing statistics"""
+    """Get query statistics"""
     try:
-        history = router.routing_history
-        
-        if not history:
-            return jsonify({
-                'total_queries': 0,
-                'local_count': 0,
-                'cloud_count': 0,
-                'accuracy_estimate': 0,
-                'category_breakdown': {}
-            })
-        
-        local_count = sum(1 for h in history if h['decision'].destination == 'local')
-        cloud_count = len(history) - local_count
-        
-        # Calculate category breakdown
-        categories = {}
-        for item in history:
-            for pattern in item['decision'].detected_patterns:
-                category = pattern.split(':')[0]
-                categories[category] = categories.get(category, 0) + 1
-        
+        history = router.conversation_history
+
         return jsonify({
             'total_queries': len(history),
-            'local_count': local_count,
-            'cloud_count': cloud_count,
-            'accuracy_estimate': 89,  # Placeholder - would calculate from corrections
-            'category_breakdown': categories,
-            'learned_rules_count': len(router.user_preferences.get('learned_rules', {}))
+            'claude_count': len(history),
+            'service': 'Claude (Anthropic)'
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         return jsonify({'error': str(e)}), 500
@@ -412,38 +324,24 @@ def update_preferences():
 def health_check():
     """Health check endpoint"""
     try:
-        # Check Ollama connection
-        ollama_status = "unknown"
-        try:
-            response = requests.get(f"{router.ollama_url}/api/tags", timeout=5)
-            ollama_status = "connected" if response.status_code == 200 else "error"
-        except:
-            ollama_status = "disconnected"
-        
-        # Check cloud services
-        cloud_services = {
-            "openai": "configured" if router.cloud_manager.openai_client else "not_configured",
-            "anthropic": "configured" if router.cloud_manager.anthropic_client else "not_configured"
-        }
-        
+        # Check Claude/Anthropic connection
+        claude_status = "configured" if router.cloud_manager.anthropic_client else "not_configured"
+
         return jsonify({
             'status': 'healthy',
-            'ollama_status': ollama_status,
-            'cloud_services': cloud_services,
-            'total_queries_processed': len(router.routing_history)
+            'claude_status': claude_status,
+            'total_queries_processed': len(router.conversation_history)
         })
-        
+
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🔒 Privacy-First LLM Router Backend Starting...")
+    print("🤖 Claude LLM Router Backend Starting...")
     print("📋 Setup Instructions:")
-    print("1. Make sure Ollama is running: ollama serve")
-    print("2. Set environment variables for cloud services:")
-    print("   export OPENAI_API_KEY='your-key-here'")
-    print("   export ANTHROPIC_API_KEY='your-key-here'")
-    print("3. Install dependencies: pip install flask flask-cors openai anthropic")
+    print("1. Set your Anthropic API key in .env file:")
+    print("   ANTHROPIC_API_KEY='your-key-here'")
+    print("2. All requests will be sent to Claude")
     print("\n🚀 Starting server on http://localhost:5000")
-    
+
     app.run(debug=True, host='0.0.0.0', port=5000)
