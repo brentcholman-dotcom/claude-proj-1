@@ -391,9 +391,208 @@
                 max-width: 100vw;
             }
         }
+
+        /* Provider Configuration Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .modal-description {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .form-select, .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-select:focus, .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .provider-option {
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        .modal-btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .modal-btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .modal-btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .modal-btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .modal-status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .modal-status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .modal-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .modal-status.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
+        .provider-info {
+            margin-top: 15px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #666;
+            display: none;
+        }
+
+        .provider-info.show {
+            display: block;
+        }
+
+        .change-provider-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .change-provider-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
     </style>
 </head>
 <body>
+    <!-- Provider Configuration Modal -->
+    <div class="modal-overlay" id="providerModal">
+        <div class="modal-content">
+            <div class="modal-header">🤖 Select Your LLM Provider</div>
+            <div class="modal-description">
+                Choose your preferred AI provider and enter your API key. All queries will be analyzed for sensitive information and anonymized when needed before being sent.
+            </div>
+
+            <form id="providerForm">
+                <div class="form-group">
+                    <label class="form-label" for="provider-select">Choose Provider</label>
+                    <select class="form-select" id="provider-select" required>
+                        <option value="">-- Select a provider --</option>
+                        <option value="claude">Claude (Anthropic)</option>
+                        <option value="chatgpt">ChatGPT (OpenAI)</option>
+                        <option value="gemini">Gemini (Google)</option>
+                        <option value="grok">Grok (xAI)</option>
+                    </select>
+                </div>
+
+                <div class="provider-info" id="provider-info"></div>
+
+                <div class="form-group">
+                    <label class="form-label" for="api-key-input">API Key</label>
+                    <input
+                        type="password"
+                        class="form-input"
+                        id="api-key-input"
+                        placeholder="Enter your API key"
+                        required
+                    />
+                </div>
+
+                <button type="submit" class="modal-btn modal-btn-primary" id="submit-btn">
+                    Validate & Connect
+                </button>
+
+                <div class="modal-status" id="modal-status"></div>
+            </form>
+        </div>
+    </div>
     <div class="sidebar">
         <h2>🤖 Claude Chat</h2>
 
@@ -457,6 +656,38 @@
     <div class="notification" id="notification"></div>
 
     <script>
+        // Provider information and API key URLs
+        const PROVIDER_INFO = {
+            claude: {
+                name: 'Claude (Anthropic)',
+                icon: '🤖',
+                description: 'Get your API key from the Anthropic Console',
+                keyUrl: 'https://console.anthropic.com/settings/keys',
+                info: 'Claude excels at detailed analysis, creative writing, and complex reasoning tasks.'
+            },
+            chatgpt: {
+                name: 'ChatGPT (OpenAI)',
+                icon: '💬',
+                description: 'Get your API key from OpenAI Platform',
+                keyUrl: 'https://platform.openai.com/api-keys',
+                info: 'ChatGPT is great for general conversation, coding help, and quick answers.'
+            },
+            gemini: {
+                name: 'Gemini (Google)',
+                icon: '✨',
+                description: 'Get your API key from Google AI Studio',
+                keyUrl: 'https://makersuite.google.com/app/apikey',
+                info: 'Gemini offers strong multimodal capabilities and integration with Google services.'
+            },
+            grok: {
+                name: 'Grok (xAI)',
+                icon: '🚀',
+                description: 'Get your API key from xAI Console',
+                keyUrl: 'https://console.x.ai/',
+                info: 'Grok provides unique perspectives with real-time information access.'
+            }
+        };
+
         class LLMRouterUI {
             constructor() {
                 this.messageCount = 0;
@@ -469,12 +700,16 @@
                     personal: 0,
                     total: 0
                 };
-                
+
+                this.currentProvider = null;
+
                 // Make this instance globally accessible for button callbacks
                 window.llmRouter = this;
-                
+
                 this.initializeEventListeners();
+                this.initializeProviderModal();
                 this.updateStats();
+                this.checkProviderStatus();
             }
 
             initializeEventListeners() {
@@ -494,6 +729,214 @@
                     e.target.style.height = 'auto';
                     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
                 });
+            }
+
+            initializeProviderModal() {
+                const providerSelect = document.getElementById('provider-select');
+                const providerForm = document.getElementById('providerForm');
+                const providerInfoDiv = document.getElementById('provider-info');
+
+                // Handle provider selection change
+                providerSelect.addEventListener('change', (e) => {
+                    const provider = e.target.value;
+                    if (provider && PROVIDER_INFO[provider]) {
+                        const info = PROVIDER_INFO[provider];
+                        providerInfoDiv.innerHTML = `
+                            <strong>${info.icon} ${info.name}</strong>
+                            <p style="margin-top: 8px;">${info.info}</p>
+                            <p style="margin-top: 8px;">
+                                ${info.description}<br>
+                                <a href="${info.keyUrl}" target="_blank" style="color: #667eea; text-decoration: none;">
+                                    Get API Key →
+                                </a>
+                            </p>
+                        `;
+                        providerInfoDiv.classList.add('show');
+                    } else {
+                        providerInfoDiv.classList.remove('show');
+                    }
+                });
+
+                // Handle form submission
+                providerForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    await this.validateAndSetProvider();
+                });
+            }
+
+            async checkProviderStatus() {
+                try {
+                    const response = await fetch('/api/current-provider', {
+                        credentials: 'include'
+                    });
+                    const data = await response.json();
+
+                    if (data.configured && data.provider) {
+                        // Provider is configured
+                        this.currentProvider = data.provider;
+                        this.updateUIForProvider(data.provider);
+                    } else {
+                        // No provider configured - show modal
+                        this.showProviderModal();
+                        // Disable chat input until configured
+                        document.getElementById('user-input').disabled = true;
+                        document.getElementById('send-btn').disabled = true;
+                    }
+                } catch (error) {
+                    console.error('Error checking provider status:', error);
+                    this.showProviderModal();
+                }
+            }
+
+            showProviderModal() {
+                const modal = document.getElementById('providerModal');
+                modal.classList.add('show');
+            }
+
+            hideProviderModal() {
+                const modal = document.getElementById('providerModal');
+                modal.classList.remove('show');
+            }
+
+            async validateAndSetProvider() {
+                const provider = document.getElementById('provider-select').value;
+                const apiKey = document.getElementById('api-key-input').value;
+                const submitBtn = document.getElementById('submit-btn');
+                const statusDiv = document.getElementById('modal-status');
+
+                if (!provider || !apiKey) {
+                    this.showModalStatus('Please select a provider and enter your API key', 'error');
+                    return;
+                }
+
+                // Show loading state
+                submitBtn.disabled = true;
+                this.showModalStatus('Validating API key...', 'loading');
+
+                try {
+                    const response = await fetch('/api/set-provider', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            provider: provider,
+                            api_key: apiKey
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok && result.success) {
+                        this.showModalStatus('✓ Connected successfully!', 'success');
+                        this.currentProvider = provider;
+
+                        // Update UI
+                        this.updateUIForProvider(provider);
+
+                        // Enable chat
+                        document.getElementById('user-input').disabled = false;
+                        document.getElementById('send-btn').disabled = false;
+
+                        // Hide modal after short delay
+                        setTimeout(() => {
+                            this.hideProviderModal();
+                            // Clear form
+                            document.getElementById('provider-select').value = '';
+                            document.getElementById('api-key-input').value = '';
+                            statusDiv.className = 'modal-status';
+                            statusDiv.textContent = '';
+                        }, 1500);
+                    } else {
+                        this.showModalStatus('✗ ' + (result.error || 'Validation failed'), 'error');
+                        submitBtn.disabled = false;
+                    }
+                } catch (error) {
+                    this.showModalStatus('✗ Connection error: ' + error.message, 'error');
+                    submitBtn.disabled = false;
+                }
+            }
+
+            showModalStatus(message, type) {
+                const statusDiv = document.getElementById('modal-status');
+                statusDiv.textContent = message;
+                statusDiv.className = `modal-status ${type}`;
+            }
+
+            updateUIForProvider(provider) {
+                if (!PROVIDER_INFO[provider]) return;
+
+                const info = PROVIDER_INFO[provider];
+
+                // Update sidebar title
+                const sidebarTitle = document.querySelector('.sidebar h2');
+                sidebarTitle.textContent = `${info.icon} ${info.name}`;
+
+                // Update provider stat card
+                const providerCard = document.querySelectorAll('.stat-card')[1];
+                if (providerCard) {
+                    const statNumber = providerCard.querySelector('.stat-number');
+                    statNumber.textContent = info.name.split(' (')[0]; // Just the name without company
+                }
+
+                // Update about section
+                const aboutSection = document.querySelector('.sidebar > div:last-child');
+                if (aboutSection) {
+                    aboutSection.innerHTML = `
+                        <h3 style="margin-bottom: 10px; font-size: 14px;">Current Provider</h3>
+                        <p style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
+                            ${info.icon} <strong>${info.name}</strong><br>
+                            ${info.info}
+                        </p>
+                        <button class="change-provider-btn" onclick="window.llmRouter.changeProvider()">
+                            Change Provider
+                        </button>
+                    `;
+                }
+
+                // Update welcome message
+                this.updateWelcomeMessage(provider);
+            }
+
+            updateWelcomeMessage(provider) {
+                const info = PROVIDER_INFO[provider];
+                const welcomeMessage = document.querySelector('.chat-container .message.assistant');
+                if (welcomeMessage) {
+                    welcomeMessage.innerHTML = `
+                        <div class="message-content">
+                            <div class="routing-header local">
+                                <div class="routing-main">
+                                    <span class="routing-icon">${info.icon}</span>
+                                    <span class="routing-text">${info.name.toUpperCase()} • Welcome Message</span>
+                                </div>
+                                <span class="routing-confidence">Privacy Protected</span>
+                            </div>
+
+                            <div>
+                                Welcome to Multi-LLM Privacy Chat! You're now connected to <strong>${info.name}</strong>.
+
+                                <br><br><strong>Privacy Protection:</strong>
+                                <br>🔒 All queries are analyzed for sensitive information
+                                <br>🔍 PII is automatically detected and anonymized
+                                <br>✨ Your privacy is our priority
+
+                                <br><br>Ask me anything - from coding help to creative writing, analysis, and more!
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            changeProvider() {
+                // Show the modal to change provider
+                this.showProviderModal();
+                // Pre-select current provider
+                if (this.currentProvider) {
+                    document.getElementById('provider-select').value = this.currentProvider;
+                    // Trigger change event to show provider info
+                    document.getElementById('provider-select').dispatchEvent(new Event('change'));
+                }
             }
 
             async sendMessage() {
@@ -582,8 +1025,12 @@
                 const decision = result.routing_decision;
                 const isAnonymized = decision.anonymization_needed;
                 const headerClass = isAnonymized ? 'cloud-anon' : 'local';
-                const icon = isAnonymized ? '🔒' : '🤖';
-                const text = isAnonymized ? 'CLAUDE • Privacy Protected' : 'CLAUDE';
+
+                // Use current provider info
+                const providerInfo = PROVIDER_INFO[this.currentProvider] || PROVIDER_INFO['claude'];
+                const icon = isAnonymized ? '🔒' : providerInfo.icon;
+                const providerName = providerInfo.name.split(' (')[0].toUpperCase();
+                const text = isAnonymized ? `${providerName} • Privacy Protected` : providerName;
 
                 // Build privacy details if patterns detected
                 let privacyDetails = '';
@@ -706,12 +1153,13 @@
                     if (forceDestination) {
                         requestBody.force_destination = forceDestination;
                     }
-                    
+
                     const response = await fetch('/api/query', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
                         },
+                        credentials: 'include',  // Include session cookie
                         body: JSON.stringify(requestBody)
                     });
                     

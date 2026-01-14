@@ -25,6 +25,9 @@ ENV/
 # User preferences
 user_preferences.json
 
+# Flask session data
+flask_session/
+
 # OS
 .DS_Store
 Thumbs.db
